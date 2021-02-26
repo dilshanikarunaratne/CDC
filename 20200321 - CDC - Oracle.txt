@@ -1,0 +1,191 @@
+1. login: sys as sysdba
+
+2. CREATE TABLESPACE ts_cdc1 DATAFILE 'C:/ts_cdc1.dbf' size 300m; 
+
+3.CREATE USER dilshani IDENTIFIED by dilshani DEFAULT TABLESPACE ts_cdc1 QUOTA UNLIMITED ON SYSTEM QUOTA UNLIMITED ON SYSAUX;
+
+4.GRANT CREATE SESSION TO dilshani;
+
+5.GRANT CREATE TABLE TO dilshani;
+
+6.GRANT CREATE TABLESPACE TO dilshani;
+
+7.GRANT UNLIMITED TABLESPACE TO dilshani;
+
+8.GRANT SELECT_CATALOG_ROLE TO dilshani;
+
+9.GRANT EXECUTE_CATALOG_ROLE TO dilshani;
+
+10.GRANT CREATE SEQUENCE TO dilshani;
+
+11.GRANT DBA TO dilshani;
+
+12.GRANT EXECUTE on DBMS_CDC_PUBLISH TO dilshani;
+
+13.EXECUTE DBMS_STREAMS_AUTH.GRANT_ADMIN_PRIVILEGE(GRANTEE => 'dilshani');
+
+14. CREATE TABLE dilshani.Employee
+   (
+    ID int NOT NULL,
+    Name varchar(30) NOT NULL,
+    Designation varchar(50) NULL,
+    Town varchar(70) NULL,
+    Age int NULL,
+    CONSTRAINT employee_pk PRIMARY KEY (ID)
+   );
+
+
+15.BEGIN
+                   DBMS_CAPTURE_ADM.PREPARE_TABLE_INSTANTIATION(TABLE_NAME => 'dilshani.Employee');
+               END;
+    /
+
+
+16.BEGIN
+                  DBMS_CDC_PUBLISH.CREATE_CHANGE_SET(
+                  change_set_name => 'EMPLOYEE_TEST',
+                  description => 'TESTING_PURPOSE',
+                  change_source_name => 'HOTLOG_SOURCE',
+                  stop_on_ddl => 'y',
+                  begin_date => sysdate,
+                 end_date => sysdate+100);
+              END;
+            /
+
+
+
+shutdown immediate;
+startup mount;
+alter database archivelog;
+alter database open;
+
+
+17. conn dilshani/dilshani
+
+18. desc Employee
+
+19. conn /as sysdba
+
+20. BEGIN
+       DBMS_CDC_PUBLISH.CREATE_CHANGE_TABLE(
+       owner              => 'dilshani',
+       change_table_name  => 'employee_cdc',
+       change_set_name    => 'EMPLOYEE_TEST',
+       source_schema      => 'dilshani',
+       source_table       => 'EMPLOYEE',
+       column_type_list   => 'ID INT, Name VARCHAR(30), Designation VARCHAR(50), Town VARCHAR(70), Age int',
+       capture_values     => 'both',
+       rs_id              => 'y',
+       row_id             => 'n',
+       user_id            => 'n',
+       timestamp          => 'n',
+       object_id          => 'n',
+       source_colmap      => 'n',
+       target_colmap      => 'y',
+       options_string     => 'TABLESPACE TS_CDC1');
+   END;
+   /
+
+21.  BEGIN
+             DBMS_CDC_PUBLISH.ALTER_CHANGE_SET(
+             change_set_name => 'EMPLOYEE_TEST',
+             enable_capture => 'y');
+          END;
+         /
+
+22. grant select on dilshani.employee_cdc to dilshani;
+
+23. conn dilshani/dilshani
+
+24. SELECT * FROM ALL_SOURCE_TABLES;
+
+25. conn dilshani/dilshani
+
+26. SELECT UNIQUE CHANGE_SET_NAME, COLUMN_NAME, PUB_ID
+FROM ALL_PUBLISHED_COLUMNS
+WHERE SOURCE_SCHEMA_NAME ='DILSHANI' AND SOURCE_TABLE_NAME = 'EMPLOYEE';
+
+27. BEGIN
+                 DBMS_CDC_SUBSCRIBE.CREATE_SUBSCRIPTION(
+                change_set_name   => 'EMPLOYEE_TEST',
+                description       => 'Change data for test',
+                subscription_name => 'EMP_SUBS_TEST');
+              END;
+             /
+
+28. BEGIN
+            DBMS_CDC_SUBSCRIBE.SUBSCRIBE(
+            subscription_name => 'EMP_SUBS_TEST',
+            source_schema     => 'DILSHANI',
+            source_table      => 'EMPLOYEE',
+            column_list       => 'ID,Name,Designation,Town,Age',
+            subscriber_view   => 'EMP_SUBS_VIEW');
+          END;
+         /
+
+29. BEGIN
+            DBMS_CDC_SUBSCRIBE.ACTIVATE_SUBSCRIPTION(
+           subscription_name => 'EMP_SUBS_TEST');
+          END;
+         /
+
+30. BEGIN
+             DBMS_CDC_SUBSCRIBE.EXTEND_WINDOW(
+             subscription_name => 'EMP_SUBS_TEST');
+           END;
+           /
+
+31. SELECT ID,Name,Designation,Town,Age FROM EMP_SUBS_VIEW;
+
+32. conn dilshani/dilshani
+
+33. insert into employee values('1','JOHN','ADMIN','LA', 29);
+
+34. insert into EMPLOYEE values('2','JAKE', 'CLERK', 'NEWYORK', 31);
+
+insert into EMPLOYEE values('3','SARAH', 'ENGINEER', 'TEXAS', 25);
+
+35. COMMIT;
+
+36. conn dilshani/dilshani
+
+37. SELECT ID,Name,Designation,Town,Age FROM EMP_SUBS_VIEW;
+
+38. BEGIN
+            DBMS_CDC_SUBSCRIBE.EXTEND_WINDOW(
+            subscription_name => 'EMP_SUBS_TEST');
+          END;
+          /
+
+39. select  OPERATION$,to_char(COMMIT_TIMESTAMP$,'dd-mon-yyyy hh24:mi:ss'),ID,Name,Designation,Town,Age from emp_subs_view;
+
+40. update employee set Name='JOCOB' where ID=2;
+
+41. commit;
+
+42. conn dilshani/dilshani
+
+43. BEGIN
+             DBMS_CDC_SUBSCRIBE.EXTEND_WINDOW(
+             subscription_name => 'EMP_SUBS_TEST');
+           END;
+          /
+
+44. select  OPERATION$,to_char(COMMIT_TIMESTAMP$,'dd-mon-yyyy hh24:mi:ss'),ID,Name,Designation,Town,Age from emp_subs_view;
+
+45. delete employee where ID=2;
+
+46. commit;
+
+47. conn dilshani/dilshani
+
+48. BEGIN
+             DBMS_CDC_SUBSCRIBE.EXTEND_WINDOW(
+             subscription_name => 'EMP_SUBS_TEST');
+           END;
+          /
+
+49. select  OPERATION$,to_char(COMMIT_TIMESTAMP$,'dd-mon-yyyy hh24:mi:ss'),ID,Name,Designation,Town,Age from emp_subs_view;
+
+
+
